@@ -1,14 +1,16 @@
 import { useState, useMemo, useRef } from "react";
 
-const SAMPLE_TASKS = [
-  { id: 1, client: "株式会社アルファ", title: "要件定義書作成", due: "2026-04-24", priority: "high", status: "in_progress" },
-  { id: 2, client: "株式会社アルファ", title: "DB設計レビュー", due: "2026-04-28", priority: "medium", status: "todo" },
-  { id: 3, client: "ベータ工業", title: "サーバー設定", due: "2026-04-22", priority: "high", status: "done" },
-  { id: 4, client: "ベータ工業", title: "テスト仕様書作成", due: "2026-05-01", priority: "low", status: "todo" },
-  { id: 5, client: "ガンマ商事", title: "API設計", due: "2026-04-25", priority: "high", status: "in_progress" },
-  { id: 6, client: "ガンマ商事", title: "納品物確認", due: "2026-04-30", priority: "medium", status: "todo" },
-  { id: 7, client: "株式会社アルファ", title: "進捗報告MTG", due: "2026-04-23", priority: "medium", status: "todo" },
-];
+// 祝日データ（2025〜2026年）
+const HOLIDAYS = new Set([
+  "2025-01-01","2025-01-13","2025-02-11","2025-02-23","2025-02-24","2025-03-20",
+  "2025-04-29","2025-05-03","2025-05-04","2025-05-05","2025-05-06",
+  "2025-07-21","2025-08-11","2025-09-15","2025-09-23","2025-10-13",
+  "2025-11-03","2025-11-23","2025-11-24","2025-12-23",
+  "2026-01-01","2026-01-12","2026-02-11","2026-02-23","2026-03-20",
+  "2026-04-29","2026-05-03","2026-05-04","2026-05-05","2026-05-06",
+  "2026-07-20","2026-08-11","2026-09-21","2026-09-22","2026-09-23","2026-10-12",
+  "2026-11-03","2026-11-23","2026-12-23",
+]);
 
 const CLIENT_COLORS = [
   { accent: "#2980b9", bg: "#e8f4fb" },
@@ -30,7 +32,8 @@ const STATUS_CONFIG = {
   done:        { label: "完了",   color: "#27ae60", bg: "#eafaf1" },
 };
 
-const DAYS_JA = ["日", "月", "火", "水", "木", "金", "土"];
+// 月曜始まり
+const DAYS_JA = ["月", "火", "水", "木", "金", "土", "日"];
 
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -42,6 +45,15 @@ function parseDate(str) {
 function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
 }
+function isHoliday(date) {
+  return HOLIDAYS.has(formatDate(date));
+}
+// 月曜始まり用：0=月,1=火,...,5=土,6=日
+function dayIndex(date) {
+  return (date.getDay() + 6) % 7;
+}
+function isSunday(date) { return date.getDay() === 0; }
+function isSaturday(date) { return date.getDay() === 6; }
 
 function BottomSheet({ open, onClose, children, title }) {
   if (!open) return null;
@@ -75,11 +87,12 @@ function BottomSheet({ open, onClose, children, title }) {
 }
 
 export default function App() {
-  const today = new Date(2026, 3, 22);
+  const today = new Date();
+  today.setHours(0,0,0,0);
   const [view, setView] = useState("month");
-  const [currentDate, setCurrentDate] = useState(today);
-  const [tasks, setTasks] = useState(SAMPLE_TASKS);
-  const [selectedDate, setSelectedDate] = useState(today);
+  const [currentDate, setCurrentDate] = useState(new Date(today));
+  const [tasks, setTasks] = useState([]); // 空データ
+  const [selectedDate, setSelectedDate] = useState(new Date(today));
   const [selectedTask, setSelectedTask] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [showFilter, setShowFilter] = useState(false);
@@ -109,14 +122,12 @@ export default function App() {
     const d = new Date(currentDate);
     if (view === "month") d.setMonth(d.getMonth() - 1);
     else if (view === "week") d.setDate(d.getDate() - 7);
-    else d.setDate(d.getDate() - 1);
     setCurrentDate(d);
   }
   function next() {
     const d = new Date(currentDate);
     if (view === "month") d.setMonth(d.getMonth() + 1);
     else if (view === "week") d.setDate(d.getDate() + 7);
-    else d.setDate(d.getDate() + 1);
     setCurrentDate(d);
   }
 
@@ -152,8 +163,12 @@ export default function App() {
     }
     return "タスク一覧";
   }
+
+  // 月曜始まりの週の開始日
   function getWeekStart(d) {
-    const s = new Date(d); s.setDate(d.getDate() - d.getDay()); return s;
+    const s = new Date(d);
+    s.setDate(d.getDate() - dayIndex(d));
+    return s;
   }
 
   function onTouchStart(e) { touchStartX.current = e.touches[0].clientX; }
@@ -162,6 +177,14 @@ export default function App() {
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     if (Math.abs(dx) > 60) { dx < 0 ? next() : prev(); }
     touchStartX.current = null;
+  }
+
+  // 日付の文字色（祝日・日曜=赤、土曜=青）
+  function dateColor(date, isSelected) {
+    if (isSelected) return "#fff";
+    if (isHoliday(date) || isSunday(date)) return "#e74c3c";
+    if (isSaturday(date)) return "#2980b9";
+    return "#2c3e50";
   }
 
   function TaskCard({ task, onTap, showDate }) {
@@ -204,7 +227,7 @@ export default function App() {
 
   function MonthView() {
     const year = currentDate.getFullYear(), month = currentDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
+    const firstDay = dayIndex(new Date(year, month, 1)); // 月曜始まり
     const daysInMonth = new Date(year, month+1, 0).getDate();
     const cells = [];
     for (let i = 0; i < firstDay; i++) cells.push(null);
@@ -216,7 +239,7 @@ export default function App() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", background: "#fff", borderBottom: "1px solid #eee" }}>
           {DAYS_JA.map((d, i) => (
             <div key={d} style={{ textAlign: "center", padding: "8px 2px", fontSize: 12, fontWeight: 700,
-              color: i===0 ? "#e74c3c" : i===6 ? "#2980b9" : "#95a5a6" }}>{d}</div>
+              color: i === 5 ? "#2980b9" : i === 6 ? "#e74c3c" : "#95a5a6" }}>{d}</div>
           ))}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", background: "#f0f4f8", gap: 1 }}>
@@ -226,6 +249,9 @@ export default function App() {
             const isSelected = date && isSameDay(date, selectedDate);
             const isPast = date && date < today && !isToday;
             const highCount = dayTasks.filter(t => t.priority === "high" && t.status !== "done").length;
+            const holiday = date && isHoliday(date);
+            const sun = date && isSunday(date);
+            const sat = date && isSaturday(date);
             return (
               <div key={idx} onClick={() => date && setSelectedDate(date)}
                 style={{ background: isSelected ? "#1a2740" : isToday ? "#fffbf0" : "#fff",
@@ -233,11 +259,13 @@ export default function App() {
                   display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 {date && (
                   <>
-                    <div style={{ fontSize: 14, fontWeight: isToday || isSelected ? 800 : 400,
-                      color: isSelected ? "#fff" : isToday ? "#e67e22" : isPast ? "#bdc3c7" : "#2c3e50",
+                    <div style={{
+                      fontSize: 14, fontWeight: isToday || isSelected ? 800 : 400,
+                      color: isSelected ? "#fff" : isPast ? "#bdc3c7" : (holiday || sun) ? "#e74c3c" : sat ? "#2980b9" : "#2c3e50",
                       width: 28, height: 28, borderRadius: "50%",
                       background: isToday && !isSelected ? "#fff3e0" : "transparent",
-                      display: "flex", alignItems: "center", justifyContent: "center" }}>{date.getDate()}</div>
+                      display: "flex", alignItems: "center", justifyContent: "center"
+                    }}>{date.getDate()}</div>
                     <div style={{ display: "flex", gap: 2, flexWrap: "wrap", justifyContent: "center" }}>
                       {dayTasks.slice(0, 3).map((t, ti) => {
                         const cc = clientColorMap[t.client] || CLIENT_COLORS[0];
@@ -256,7 +284,9 @@ export default function App() {
         <div style={{ flex: 1, overflowY: "auto", background: "#f8fafc" }}>
           <div style={{ padding: "12px 16px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7f8c8d" }}>
-              {selectedDate.getMonth()+1}月{selectedDate.getDate()}日（{selDayTasks.length}件）
+              {selectedDate.getMonth()+1}月{selectedDate.getDate()}日
+              {isHoliday(selectedDate) ? " 🎌" : ""}
+              （{selDayTasks.length}件）
             </span>
             <button onClick={() => openNew(selectedDate)}
               style={{ background: "#1a2740", color: "#fff", border: "none", borderRadius: 20,
@@ -284,12 +314,19 @@ export default function App() {
             const isToday = isSameDay(d, today);
             const isSel = isSameDay(d, selectedDate);
             const cnt = tasksOnDay(d).length;
+            const holiday = isHoliday(d);
+            const sun = isSunday(d);
+            const sat = isSaturday(d);
             return (
               <div key={i} onClick={() => setSelectedDate(d)}
                 style={{ flex: 1, textAlign: "center", padding: "8px 2px 10px", cursor: "pointer",
                   borderBottom: isSel ? "3px solid #1a2740" : "3px solid transparent" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: i===0 ? "#e74c3c" : i===6 ? "#2980b9" : "#95a5a6" }}>{DAYS_JA[i]}</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: isToday ? "#e67e22" : isSel ? "#1a2740" : "#2c3e50" }}>{d.getDate()}</div>
+                <div style={{ fontSize: 10, fontWeight: 700,
+                  color: sat ? "#2980b9" : (sun || holiday) ? "#e74c3c" : "#95a5a6" }}>{DAYS_JA[i]}</div>
+                <div style={{ fontSize: 18, fontWeight: 700,
+                  color: isToday ? "#e67e22" : isSel ? "#1a2740" : (sun || holiday) ? "#e74c3c" : sat ? "#2980b9" : "#2c3e50" }}>
+                  {d.getDate()}
+                </div>
                 {cnt > 0 && (
                   <div style={{ fontSize: 10, color: "#fff", background: isSel ? "#1a2740" : "#bdc3c7",
                     borderRadius: 10, width: 16, height: 16, margin: "2px auto 0",
@@ -302,7 +339,9 @@ export default function App() {
         <div style={{ flex: 1, overflowY: "auto", background: "#f8fafc" }}>
           <div style={{ padding: "12px 16px 6px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: "#7f8c8d" }}>
-              {selectedDate.getMonth()+1}月{selectedDate.getDate()}日（{tasksOnDay(selectedDate).length}件）
+              {selectedDate.getMonth()+1}月{selectedDate.getDate()}日
+              {isHoliday(selectedDate) ? " 🎌" : ""}
+              （{tasksOnDay(selectedDate).length}件）
             </span>
             <button onClick={() => openNew(selectedDate)}
               style={{ background: "#1a2740", color: "#fff", border: "none", borderRadius: 20,
@@ -329,7 +368,11 @@ export default function App() {
           <span style={{ fontSize: 13, fontWeight: 700, color: "#7f8c8d" }}>進行中・未着手（{upcoming.length}件）</span>
         </div>
         {upcoming.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "24px 0", color: "#bdc3c7", fontSize: 14 }}>タスクなし</div>
+          <div style={{ textAlign: "center", padding: "40px 0", color: "#bdc3c7" }}>
+            <div style={{ fontSize: 40, marginBottom: 8 }}>📋</div>
+            <div style={{ fontSize: 14 }}>タスクがありません</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>右下の ＋ ボタンから追加できます</div>
+          </div>
         ) : (
           <div style={{ padding: "0 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {upcoming.map(task => <TaskCard key={task.id} task={task} onTap={() => setSelectedTask(task)} showDate />)}
@@ -352,7 +395,7 @@ export default function App() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column",
       fontFamily: "'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif",
-      background: "#f8fafc", maxWidth: 480, margin: "0 auto", position: "relative" }}>
+      background: "#f8fafc", width: "100%" /* 画面幅いっぱい */ }}>
 
       {/* Header */}
       <div style={{ background: "#1a2740", color: "#fff", padding: "12px 16px 10px", flexShrink: 0 }}>
@@ -364,7 +407,7 @@ export default function App() {
                 borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {activeFilterCount > 0 ? `🔍 ${activeFilterCount}件` : "🔍 絞込"}
             </button>
-            <button onClick={() => { setCurrentDate(today); setSelectedDate(today); }}
+            <button onClick={() => { setCurrentDate(new Date(today)); setSelectedDate(new Date(today)); }}
               style={{ background: "#e67e22", border: "none", color: "#fff",
                 borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>今日</button>
           </div>
@@ -395,7 +438,7 @@ export default function App() {
       {/* FAB */}
       {view === "list" && (
         <button onClick={() => openNew(selectedDate)}
-          style={{ position: "absolute", bottom: 76, right: 20,
+          style={{ position: "fixed", bottom: 76, right: 20,
             background: "#27ae60", color: "#fff", border: "none",
             width: 56, height: 56, borderRadius: "50%", fontSize: 28, cursor: "pointer",
             boxShadow: "0 4px 16px rgba(39,174,96,0.4)", zIndex: 50,
