@@ -179,11 +179,60 @@ export default function App() {
   const [editMemo, setEditMemo] = useState(null); // {id, title, body, createdAt}
   const [showMemoForm, setShowMemoForm] = useState(false);
   const touchStartX = useRef(null);
+  const [notifications, setNotifications] = useState([]);
 
   // メモをLocalStorageに同期
   useEffect(() => {
     try { localStorage.setItem("taskcal_memos", JSON.stringify(memos)); } catch {}
   }, [memos]);
+
+  // バナー通知ロジック（アプリ起動時・タスク変更時）
+  useEffect(() => {
+    const todayStr = formatDate(today);
+    const lastShown = localStorage.getItem("taskcal_notif_date");
+    if (lastShown === todayStr) return; // 同じ日は1回だけ
+
+    const msgs = [];
+    const tomorrow = new Date(today); tomorrow.setDate(today.getDate()+1);
+    const tomorrowStr = formatDate(tomorrow);
+
+    // ① 当日・前日の期限タスク
+    const urgentTasks = tasks.filter(t =>
+      t.status !== "done" && (t.due === todayStr || t.due === tomorrowStr)
+    );
+    if (urgentTasks.length > 0) {
+      msgs.push({
+        id: "urgent",
+        type: "urgent",
+        title: "⚠️ 期限が近いタスク",
+        items: urgentTasks.map(t => `${t.client}｜${t.title}（${t.due === todayStr ? "今日まで" : "明日まで"}）`)
+      });
+    }
+
+    // ② 日曜日：翌週1週間分のタスク
+    if (today.getDay() === 0) {
+      const weekStart = new Date(today); weekStart.setDate(today.getDate()+1);
+      const weekEnd = new Date(today); weekEnd.setDate(today.getDate()+7);
+      const weekTasks = tasks.filter(t => {
+        if (t.status === "done") return false;
+        const d = parseDate(t.due);
+        return d >= weekStart && d <= weekEnd;
+      }).sort((a,b) => a.due.localeCompare(b.due));
+      if (weekTasks.length > 0) {
+        msgs.push({
+          id: "weekly",
+          type: "weekly",
+          title: "📅 今週のタスク一覧",
+          items: weekTasks.map(t => `${t.due.slice(5)}｜${t.client}｜${t.title}`)
+        });
+      }
+    }
+
+    if (msgs.length > 0) {
+      setNotifications(msgs);
+      localStorage.setItem("taskcal_notif_date", todayStr);
+    }
+  }, [tasks]);
 
   function saveMemo() {
     if (!editMemo.title && !editMemo.body) return;
@@ -200,7 +249,12 @@ export default function App() {
     setMemos(p => ({ ...p, [client]: (p[client]||[]).filter(m => m.id !== id) }));
   }
 
-  const clients = useMemo(() => [...new Set(tasks.map(t => t.client))].filter(Boolean), [tasks]);
+  // タスク+メモ両方から顧客を収集（タスクがなくても顧客を残す）
+  const clients = useMemo(() => {
+    const fromTasks = tasks.map(t => t.client).filter(Boolean);
+    const fromMemos = Object.keys(memos).filter(k => (memos[k]||[]).length > 0);
+    return [...new Set([...fromTasks, ...fromMemos])];
+  }, [tasks, memos]);
   const allTaskTitles = useMemo(() => [...new Set(tasks.map(t => t.title))].filter(Boolean), [tasks]);
 
   const clientColorMap = useMemo(() => {
@@ -661,6 +715,29 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {/* バナー通知 */}
+      {notifications.map(notif => (
+        <div key={notif.id} style={{
+          background: notif.type==="urgent" ? "#fff8e0" : "#e8f4fb",
+          borderBottom: `3px solid ${notif.type==="urgent" ? "#e67e22" : "#2980b9"}`,
+          padding:"10px 16px", flexShrink:0 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:6 }}>
+            <span style={{ fontSize:14, fontWeight:800,
+              color: notif.type==="urgent" ? "#e67e22" : "#2980b9" }}>{notif.title}</span>
+            <button onClick={()=>setNotifications(p=>p.filter(n=>n.id!==notif.id))}
+              style={{ background:"none", border:"none", fontSize:18, color:"#95a5a6", cursor:"pointer", padding:"0 4px" }}>×</button>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
+            {notif.items.map((item, i) => (
+              <div key={i} style={{ fontSize:12, color:"#2c3e50", paddingLeft:8,
+                borderLeft: `3px solid ${notif.type==="urgent" ? "#e67e22" : "#2980b9"}` }}>
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
 
       {/* Main */}
       <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden" }}
